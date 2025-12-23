@@ -2927,40 +2927,34 @@ def find_dll(targetfile, dir):
 
 
 def traverse_to_unidec(topname="UniDec3"):
-    lowertop = topname.lower()
-    # The parent directory can be whatever it wants, search for the concrete child.
-    win = False
-    # Get the absolute path of the current script
-    curr_pos = os.path.abspath(__file__)
-    # print("Current path: ", curr_pos)
-    if "\\" in curr_pos:
-        win = True
-        truncated = curr_pos.split("\\")
-    else:
-        truncated = curr_pos.split(os.path.sep)
+    """
+    Return an absolute path to the nearest ancestor directory named ``topname``.
 
-    new_path = ""
+    This is used to locate bundled binaries/DLLs for both source checkouts and
+    packaged distributions (e.g., PyInstaller layouts with ``_internal``).
+    """
+    from pathlib import Path
 
-    if win:
-        new_path = truncated[0] + "\\"
-        for i in range(1, len(truncated)):
-            new_path = os.path.join(new_path, truncated[i])
-            currlow = truncated[i].lower()
-            # check for duplicate dbl zip
-            if i + 1 < len(truncated):
-                if truncated[i + 1] != topname and currlow == lowertop:
-                    break
-    else:
-        for i in range(len(truncated)):
-            new_path = os.path.join(new_path, truncated[i])
-            if i + 1 < len(truncated):
-                if truncated[i + 1] != topname and truncated[i] == topname:
-                    break
+    curr_file = Path(__file__).resolve()
 
-    return new_path
+    # 1) Direct match in our ancestry.
+    for parent in [curr_file] + list(curr_file.parents):
+        if parent.name == topname:
+            return str(parent)
+
+    # 2) Fall back to locating the "unidec" package directory and returning either
+    #    that folder (if requested) or its parent (repo/site-packages root).
+    for parent in curr_file.parents:
+        if parent.name.lower() == "unidec":
+            if topname.lower() == "unidec":
+                return str(parent)
+            return str(parent.parent)
+
+    # 3) Last resort: directory containing this file.
+    return str(curr_file.parent)
 
 
-def start_at_iso(targetfile, guess=None):
+def start_at_iso(targetfile, guess=None, silent=False):
     result = ""
     if guess is not None:
         if os.path.isdir(guess):
@@ -2971,23 +2965,28 @@ def start_at_iso(targetfile, guess=None):
     parent = traverse_to_unidec()
     path = os.path.join(parent, "unidec", "IsoDec")
     if not os.path.exists(path):
-        print("Path does not exist: ", path)
+        if not silent:
+            print("Path does not exist: ", path)
         path = traverse_to_unidec("_internal")
         if not os.path.exists(path):
-            print("Path does not exist: ", path)
+            if not silent:
+                print("Path does not exist: ", path)
             path = traverse_to_unidec("unidec")
             if not os.path.exists(path):
-                print("Path does not exist: ", path)
+                if not silent:
+                    print("Path does not exist: ", path)
                 return result
     if os.path.isdir(path):
         for entry in os.scandir(path):
             if entry.is_file() and entry.name == targetfile:
-                print("Found DLL within:", entry.path)
+                if not silent:
+                    print("Found DLL within:", entry.path)
                 result = entry.path
                 return result
     if not result:
         # Iterate alphabetically from the parent
-        print("Dll not found in nested subdirectory, searching alphabetically from parent")
+        if not silent:
+            print("Dll not found in nested subdirectory, searching alphabetically from parent")
         if os.path.isdir(parent):
             for entry in os.scandir(parent):
                 if entry.is_dir():
@@ -2995,7 +2994,8 @@ def start_at_iso(targetfile, guess=None):
                     if result:
                         return result
         # Now look in internal
-        print("Dll not found in parent. Searching in internal.")
+        if not silent:
+            print("Dll not found in parent. Searching in internal.")
         if not result:
             parent = traverse_to_unidec("_internal")
             if os.path.isdir(parent):

@@ -23,10 +23,9 @@ elif platform.system() == "Linux":
 else:
     dllname = "isodeclib.dylib"
 
-default_dll_path = start_at_iso(dllname, guess=current_path)
+default_dll_path = start_at_iso(dllname, guess=current_path, silent=True)
 
-if not default_dll_path:
-    print("DLL not found anywhere")
+ISODEC_AVAILABLE = bool(default_dll_path)
 
 example = np.array(
     [
@@ -152,12 +151,21 @@ class IsoDecWrapper:
     def __init__(self, dllpath=None):
         if dllpath is None:
             dllpath = default_dll_path
+        if not dllpath:
+            raise RuntimeError(
+                f"IsoDec native library not found (expected {dllname}). "
+                "Build the IsoDec C/C++ libraries in `unidec/IsoDec/src_cmake` "
+                "or use the pure-Python IsoDec engine."
+            )
 
-        modelpath = '\\'.join(dllpath.split("\\")[:-1])
+        modelpath = os.path.dirname(dllpath)
 
         self.modeldir = modelpath
 
-        self.c_lib = ctypes.CDLL(dllpath)
+        try:
+            self.c_lib = ctypes.CDLL(dllpath)
+        except OSError as e:
+            raise RuntimeError(f"Failed to load IsoDec native library at {dllpath}: {e}") from e
 
         self.c_lib.encode.argtypes = [
             ctypes.POINTER(ctypes.c_double),

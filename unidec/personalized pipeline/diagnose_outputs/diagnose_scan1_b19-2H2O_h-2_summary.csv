@@ -1,0 +1,4 @@
+spec,label,ion_type,frag_name,frag_len,z,loss_formula,loss_count,h_transfer,ok,reason,raw_cosine_preanchor,anchor_theory_mz,anchor_obs_mz,anchor_ppm,anchor_within_ppm,obs_idx,obs_int,obs_rel_int,isodec_css,isodec_accepted,isodec_local_centroids_n,isodec_matched_peaks_n,isodec_minpeaks_effective,isodec_areacovered,isodec_topthree,match_tol_ppm,min_obs_rel_int,rel_intensity_cutoff,mz_min,mz_max
+b19-2H2O,b19-2H2O^1+,b,b19,19,1,H2O,2,-2,False,failed_isodec_rules,0.6383263617281392,2022.9840429625,2022.9965,6.1577537120010115,True,18909,3.5,0.06084840055632823,0.8745016169054461,False,62,2,3,0.015489362670250436,False,20.0,0.02,0.01,,
+b19-2H2O,b19-2H2O^2+,b,b19,19,2,H2O,2,-2,False,anchor_outside_ppm,0.0,1011.99565971475,1012.2905,,False,1265,,,,False,,,,,,20.0,0.02,0.01,,
+b19-2H2O,b19-2H2O^3+,b,b19,19,3,H2O,2,-2,False,anchor_outside_ppm,0.0,674.9995319655001,675.1606,,False,778,,,,False,,,,,,20.0,0.02,0.01,,

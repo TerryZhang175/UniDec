@@ -6,7 +6,10 @@ from unidec.IsoDec.datatools import *
 from unidec.IsoDec.match import *
 import pickle as pkl
 import time
-import torch
+try:
+    import torch
+except Exception:  # pragma: no cover
+    torch = None
 import matplotlib as mpl
 from numba import njit
 from unidec.IsoDec.plots import cplot
@@ -204,6 +207,8 @@ def encode_phase_file(file, maxlen=8, save=True, outdir="C:\\Data\\IsoNN\\multi"
         zdist.append(z)
         emat = encode_phase(centroid, phaseres=maxlen)
         # emat.astype(np.float32)
+        if torch is None:
+            raise ImportError("PyTorch is required for `encode_file`.")
         emat = torch.as_tensor(emat, dtype=torch.float32)
 
         # randomly sort into training and test data

@@ -8,42 +8,101 @@ from unidec.tools import start_at_iso
 current_path = os.path.dirname(os.path.realpath(__file__))
 
 if platform.system() == "Windows":
-    dllname = "isogen.dll"
+    _dll_candidates = ["isogen.dll"]
 elif platform.system() == "Linux":
-    dllname = "isogen.so"
-
+    _dll_candidates = ["isogen.so"]
+elif platform.system() == "Darwin":
+    _dll_candidates = ["isogen.dylib"]
 else:
-    print("Not yet implemented for MacOS")
-    dllname = "isogen.dylib"
+    _dll_candidates = ["isogen.so", "isogen.dylib", "isogen.dll"]
+
+dllname = _dll_candidates[0]
+dllpath = ""
+
+ISOGEN_AVAILABLE = False
+ISOGEN_LOAD_ERROR = None
+isogen_c_lib = None
+
+_ISOGEN_LOAD_ATTEMPTED = False
 
 
-dllpath = start_at_iso(dllname, guess=current_path)
+def _try_load_isogen() -> bool:
+    global _ISOGEN_LOAD_ATTEMPTED, dllname, dllpath, ISOGEN_AVAILABLE, ISOGEN_LOAD_ERROR, isogen_c_lib
 
-if not dllpath:
-    print("DLL not found anywhere:", dllname)
-# else:
-#     print("DLL Found at:", dllpath)
+    if _ISOGEN_LOAD_ATTEMPTED:
+        return ISOGEN_AVAILABLE
+    _ISOGEN_LOAD_ATTEMPTED = True
 
-isodist = ctypes.c_float * 64
+    # Locate the shared library.
+    for _candidate in _dll_candidates:
+        _path = start_at_iso(_candidate, guess=current_path, silent=True)
+        if _path:
+            dllname = _candidate
+            dllpath = _path
+            break
 
-isogen_c_lib = ctypes.CDLL(dllpath)
+    if not dllpath:
+        ISOGEN_LOAD_ERROR = f"{dllname} not found (searched near {current_path})"
+        return False
 
-isogen_c_lib.fft_rna_mass_to_dist.argtypes = [ctypes.c_float, ctypes.POINTER(ctypes.c_float), ctypes.c_int,
-                                            ctypes.c_int]
-isogen_c_lib.fft_rna_mass_to_dist.restype = ctypes.c_float
+    try:
+        isogen_c_lib = ctypes.CDLL(dllpath)
+    except OSError as e:
+        ISOGEN_LOAD_ERROR = f"Failed to load {dllpath}: {e}"
+        isogen_c_lib = None
+        return False
 
-isogen_c_lib.nn_rna_mass_to_dist.argtypes = [ctypes.c_float, ctypes.POINTER(ctypes.c_float), ctypes.c_int, ctypes.c_int]
-isogen_c_lib.nn_rna_mass_to_dist.restype = ctypes.c_float
+    # Configure signatures.
+    isogen_c_lib.fft_rna_mass_to_dist.argtypes = [
+        ctypes.c_float,
+        ctypes.POINTER(ctypes.c_float),
+        ctypes.c_int,
+        ctypes.c_int,
+    ]
+    isogen_c_lib.fft_rna_mass_to_dist.restype = ctypes.c_float
 
-isogen_c_lib.fft_pep_mass_to_dist.argtypes = [ctypes.c_float, ctypes.POINTER(ctypes.c_float), ctypes.c_int,
-                                            ctypes.c_int]
-isogen_c_lib.fft_pep_mass_to_dist.restype = ctypes.c_float
+    isogen_c_lib.nn_rna_mass_to_dist.argtypes = [
+        ctypes.c_float,
+        ctypes.POINTER(ctypes.c_float),
+        ctypes.c_int,
+        ctypes.c_int,
+    ]
+    isogen_c_lib.nn_rna_mass_to_dist.restype = ctypes.c_float
 
-isogen_c_lib.nn_pep_mass_to_dist.argtypes = [ctypes.c_float, ctypes.POINTER(ctypes.c_float), ctypes.c_int, ctypes.c_int]
-isogen_c_lib.nn_pep_mass_to_dist.restype = ctypes.c_float
+    isogen_c_lib.fft_pep_mass_to_dist.argtypes = [
+        ctypes.c_float,
+        ctypes.POINTER(ctypes.c_float),
+        ctypes.c_int,
+        ctypes.c_int,
+    ]
+    isogen_c_lib.fft_pep_mass_to_dist.restype = ctypes.c_float
+
+    isogen_c_lib.nn_pep_mass_to_dist.argtypes = [
+        ctypes.c_float,
+        ctypes.POINTER(ctypes.c_float),
+        ctypes.c_int,
+        ctypes.c_int,
+    ]
+    isogen_c_lib.nn_pep_mass_to_dist.restype = ctypes.c_float
+
+    ISOGEN_AVAILABLE = True
+    return True
+
+
+def _require_isogen():
+    if _try_load_isogen():
+        return
+    details = ISOGEN_LOAD_ERROR or f"{dllname} not found (expected near {current_path})"
+    raise RuntimeError(
+        "IsoGen native library is unavailable. "
+        f"Details: {details}. "
+        "If you are on macOS, build the IsoDec native libraries (CMake in `unidec/IsoDec/src_cmake`) "
+        "or run via Docker."
+    )
 
 
 def nn_gen_isodist(mass, type="PEPTIDE", isolen=64):
+    _require_isogen()
 
     # Create empty array
     isodist = np.zeros(isolen).astype(np.float32)
@@ -76,6 +135,7 @@ def nn_gen_isodist(mass, type="PEPTIDE", isolen=64):
     return isodist
 
 def fft_gen_isodist(mass, type="PEPTIDE", isolen = 128):
+    _require_isogen()
     # Create empty array
     isodist = np.zeros(isolen).astype(np.float32)
     ptr = isodist.ctypes.data_as(ctypes.POINTER(ctypes.c_float))

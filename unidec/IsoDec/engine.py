@@ -2,11 +2,19 @@ import time
 import numpy as np
 from itertools import chain
 import os
-import torch
-from torch.utils.data import DataLoader
+try:
+    import torch
+    from torch.utils.data import DataLoader
+except Exception:  # pragma: no cover
+    torch = None
+    DataLoader = None
 
 from unidec.IsoDec.encoding import encode_synthetic
-from unidec.IsoDec.models import example, PhaseModel
+try:
+    from unidec.IsoDec.models import example, PhaseModel
+except Exception:  # pragma: no cover
+    example = None
+    PhaseModel = None
 from unidec.IsoDec.datatools import fastpeakdetect, get_all_centroids, fastnearest, check_spacings, remove_noise_cdata
 from unidec.IsoDec.match import optimize_shift2, MatchedCollection
 from unidec.modules.unidecstructure import IsoDecConfig
@@ -24,25 +32,28 @@ from unidec.IsoDec.altdecon import thrash_predict
 from unidec.UniDecImporter.ImporterFactory import *
 
 
-class IsoDecDataset(torch.utils.data.Dataset):
-    """
-    Dataset class for IsoDec
-    """
-
-    def __init__(self, emat, z):
+if torch is not None:
+    class IsoDecDataset(torch.utils.data.Dataset):
         """
-        Initialize the dataset
-        :param emat: List of encoded matrices
-        :param z: List of charge assignments
+        Dataset class for IsoDec
         """
-        self.emat = [torch.as_tensor(e, dtype=torch.float32) for e in emat]
-        self.z = torch.as_tensor(z, dtype=torch.long)
 
-    def __len__(self):
-        return len(self.z)
+        def __init__(self, emat, z):
+            """
+            Initialize the dataset
+            :param emat: List of encoded matrices
+            :param z: List of charge assignments
+            """
+            self.emat = [torch.as_tensor(e, dtype=torch.float32) for e in emat]
+            self.z = torch.as_tensor(z, dtype=torch.long)
 
-    def __getitem__(self, idx):
-        return [self.emat[idx], self.z[idx]]
+        def __len__(self):
+            return len(self.z)
+
+        def __getitem__(self, idx):
+            return [self.emat[idx], self.z[idx]]
+else:
+    IsoDecDataset = None
 
 
 # Note, this is primarily a tool for training, testing, and development.
@@ -73,15 +84,14 @@ class IsoDecEngine:
         self.pks = MatchedCollection()
 
         self.config.phaseres = phaseres
-        self.phasemodel = PhaseModel()
         self.maxz = 50
-        self.phasemodel.dims = [self.maxz, self.config.phaseres]
+        self.phasemodel = None
         if self.config.phaseres == 8:
-            self.phasemodel.modelid = 1
+            self._phasemodel_modelid = 1
         elif self.config.phaseres == 4:
-            self.phasemodel.modelid = 0
+            self._phasemodel_modelid = 0
         else:
-            self.phasemodel.modelid = 2
+            self._phasemodel_modelid = 2
 
         self.use_wrapper = use_wrapper
         if platform.system() == "Linux":
@@ -94,7 +104,20 @@ class IsoDecEngine:
 
 
         self.reader = None
-        self.predmode = 0
+        # Default prediction mode: use the phase model if available, else the FFT "thrash" predictor.
+        self.predmode = 0 if torch is not None else 2
+
+    def _ensure_phasemodel(self):
+        if self.phasemodel is not None:
+            return
+        if PhaseModel is None or torch is None:
+            raise ImportError(
+                "PyTorch is required for phase-model predictions. "
+                "Install `torch` (and optional `torchvision`) or set `predmode=2` to use the FFT predictor."
+            )
+        self.phasemodel = PhaseModel()
+        self.phasemodel.dims = [self.maxz, self.config.phaseres]
+        self.phasemodel.modelid = self._phasemodel_modelid
 
     def drop_ones(self, percentage=0.8):
         """
@@ -510,11 +533,12 @@ class IsoDecEngine:
         if self.use_wrapper:
             z = IsoDecWrapper().predict_charge(centroids)
         else:
+            self._ensure_phasemodel()
             z = self.phasemodel.predict(centroids)
         return [int(z), 0]
 
     def thrash_predictor(self, centroids):
-        return [thrash_predict(centroids), 1]
+        return [thrash_predict(centroids), 0]
 
     def get_matches(self, centroids, z, peakmz, pks=None):
         """
@@ -699,6 +723,12 @@ class IsoDecEngine:
                     break
 
                 if self.predmode == 0:
+                    if torch is None or DataLoader is None:
+                        raise ImportError(
+                            "PyTorch is required for `predmode=0`. "
+                            "Install `torch` or set `predmode=2` for FFT prediction."
+                        )
+                    self._ensure_phasemodel()
                     # Encode phase of all
                     emats, peaks, centlist, indexes = encode_phase_all(centroids, peaks, lowmz=self.config.mzwindowlb,
                                                                        highmz=self.config.mzwindowub,

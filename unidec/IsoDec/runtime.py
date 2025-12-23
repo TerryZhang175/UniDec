@@ -38,13 +38,36 @@ class IsoDecRuntime:
         self.config.verbose = verbose
         self.version = "1.0.0"
         self.pks = MatchedCollection()
-        self.wrapper = IsoDecWrapper()
+        self.wrapper = None
+        self._engine = None
+        self._native_load_error = None
         self.config.phaseres = phaseres
         self.maxz = 50
         self.reader = None
         self.predmode = 0
         self.showavg = False
         self.analyte_type = None
+
+        try:
+            self.wrapper = IsoDecWrapper()
+        except Exception as e:
+            self._native_load_error = e
+            # Fall back to the pure-Python engine (no native DLL/SO/dylib required).
+            try:
+                from unidec.IsoDec.engine import IsoDecEngine
+
+                self._engine = IsoDecEngine(phaseres=phaseres, verbose=verbose, use_wrapper=False)
+                self._engine.config = self.config
+                # Default to the FFT-based "thrash" predictor when native libs are unavailable.
+                self._engine.predmode = 2
+                self.predmode = self._engine.predmode
+            except Exception as engine_error:
+                raise RuntimeError(
+                    "IsoDec native library could not be loaded and the pure-Python fallback "
+                    "engine is unavailable. If you are on macOS, either build the IsoDec native "
+                    "libraries (CMake in `unidec/IsoDec/src_cmake`) or install the optional "
+                    "dependencies needed for the Python engine."
+                ) from engine_error
 
     def phase_predictor(self, centroids):
         """
@@ -92,7 +115,23 @@ class IsoDecRuntime:
         if refresh:
             self.pks = MatchedCollection()
 
-        self.pks = self.wrapper.process_spectrum(centroids, self.pks, self.config, type)
+        if self.wrapper is not None:
+            self.pks = self.wrapper.process_spectrum(centroids, self.pks, self.config, type)
+        elif self._engine is not None:
+            # Keep state synchronized with the fallback engine.
+            self._engine.pks = self.pks
+            self._engine.config = self.config
+            self._engine.predmode = self.predmode
+            self.pks = self._engine.batch_process_spectrum(
+                centroids,
+                type=type,
+                window=window,
+                threshold=threshold,
+                centroided=True,
+                refresh=refresh,
+            )
+        else:
+            raise RuntimeError("IsoDec engine is not initialized.")
 
         return self.pks
 

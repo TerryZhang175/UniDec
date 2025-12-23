@@ -84,7 +84,14 @@ def fast_calc_averagine_isotope_dist(mass, charge=1, adductmass=1.007276467, iso
     # Predict Isotopic Intensities
     # formula, minmassint, intnum = makemass(mass)
     # intensities = isojim(intnum, isolen)
-    intensities = isogen.fft_gen_isodist(mass, isolen=isolen)
+    intensities = None
+    try:
+        intensities = isogen.fft_gen_isodist(mass, isolen=isolen)
+    except Exception:
+        intensities = None
+    if intensities is None:
+        _, _, intnum = makemass(mass)
+        intensities = isojim(intnum, length=isolen)
     # Calculate masses for these
     masses = np.arange(0, len(intensities)) * mass_diff_c + mass
 
@@ -107,7 +114,15 @@ def fast_calc_averagine_isotope_dist(mass, charge=1, adductmass=1.007276467, iso
 #@njit(fastmath=True)
 def fast_calc_averagine_isotope_dist_dualoutput(mass, charge=1, adductmass=1.007276467, isotopethresh: float = 0.01, type = "PEPTIDE"):
     # Predict Isotopic Intensities
-    intensities = isogen.fft_gen_isodist(mass, type)
+    intensities = None
+    try:
+        intensities = isogen.fft_gen_isodist(mass, type=type)
+    except Exception:
+        intensities = None
+    if intensities is None:
+        # Fall back to a simple averagine/isojim model (peptide-optimized).
+        _, _, intnum = makemass(mass)
+        intensities = isojim(intnum, length=128)
     # Calculate masses for these
     masses = np.arange(0, len(intensities)) * mass_diff_c + mass
 
